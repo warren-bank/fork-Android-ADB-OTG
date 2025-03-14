@@ -1,0 +1,4 @@
+include ':ADB-OTG'
+
+include ':adblib'
+project(':adblib').projectDir = new File(rootDir, 'libs/adblib')
