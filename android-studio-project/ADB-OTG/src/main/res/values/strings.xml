@@ -1,7 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
 
-    <string name="app_name">ADB⚡OTG</string>
+    <string translatable="false" name="app_name">ADB⚡OTG</string>
+    <string translatable="false" name="app_github_repo_url">https://github.com/KhunHtetzNaing/ADB-OTG</string>
 
     <string name="waiting_device">Waiting for device</string>
     <string name="ready_flash_apks">Ready Flash Apks</string>
