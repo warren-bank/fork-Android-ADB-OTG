@@ -19,4 +19,13 @@
     <string name="guide_to_connect"><![CDATA[1. Enable developer options and USB debugging on the remote device.\n2. Connect remote device using OTG]]></string>
     <string name="guide_for_dev_option"><![CDATA[Most Android Devices\n===================\nTo enable developer options, tap the Build Number option 7 times.\n\nAndroid 9 and higher: \nSettings > About Phone > Build Number\n\nAndroid 8.0.0 and Android 8.1.0 : \nSettings > System > About Phone > Build Number\n\nAndroid 7.1 and lower: \nSettings > About Phone > Build Number\n=============================\n\nXiaomi (MIUI)\n===================\nTo enable developer options, tap the MIUI Version option 7 times.\n\nMIUI 11 and higher:\nSettings > My device > All specs > MIUI Version\n\nMIUI 10 and lower: \nSettings > About Phone > MIUI Version\n=============================\n\nSamsung\n===================\nGo to \"Settings\", then tap \"About device\" or \"About phone\".\nDepending on your device and operating system, \nyou may need to tap \"Software information\", \nthen tap \"Build number\" seven times.\n=============================\n\nVivo\n===================\nGo to \"Settings > More settings > About phone\", \nthen tap \"Build number\" seven times.\n=============================\n\nOppo & Realme\n===================\nGo to “Settings” – “About Phone” then tap \"Version\" seven times.\n=============================\n\nHuawei\n===================\nGo to \"Settings > About phone\", then tap \"Build number\" seven times.\n=============================]]></string>
 
+    <string name="slider_item1_description">Connect phone to phone</string>
+    <string name="slider_item2_description">Enable developer options and USB debugging</string>
+    <string name="button_label_run_command">Run</string>
+
+    <string name="toast_flashing">Flashing</string>
+    <string name="toast_installing_progress">Progress</string>
+    <string name="toast_click_back_again_to_exit">Please click BACK again to exit</string>
+    <string name="toast_adb_invalid_command">Error: invalid "adb" command</string>
+
 </resources>

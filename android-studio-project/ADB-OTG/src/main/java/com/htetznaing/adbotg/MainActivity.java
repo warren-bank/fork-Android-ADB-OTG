@@ -56,37 +56,72 @@ import static com.htetznaing.adbotg.Message.FLASHING;
 import static com.htetznaing.adbotg.Message.INSTALLING_PROGRESS;
 
 public class MainActivity extends AppCompatActivity implements TextView.OnEditorActionListener, View.OnKeyListener {
-    private Handler handler;
-    private UsbDevice mDevice;
-    private TextView tvStatus,logs;
-    private ImageView usb_icon;
-    private AdbCrypto adbCrypto;
-    private AdbConnection adbConnection;
-    private UsbManager mManager;
-    private RelativeLayout terminalView;
-    private LinearLayout checkContainer;
     private EditText edCommand;
-    private Button btnRun;
     private ScrollView scrollView;
-    private String user = null;
-    private SliderAdapterExample adapter;
-    private SliderView sliderView;
-    private boolean doubleBackToExitPressedOnce = false;
-    private AdbStream stream;
+    private TextView logs;
     private SpinnerDialog waitingDialog;
+
+    private UsbManager mManager;
+    private Handler handler;
+    private AdbCrypto adbCrypto;
+
+    private UsbDevice mDevice;
+    private AdbConnection adbConnection;
+    private AdbStream stream;
+
+    private boolean isShell;
+    private boolean doubleBackToExitPressedOnce;
+
+    BroadcastReceiver mUsbReceiver = new BroadcastReceiver() {
+        public void onReceive(Context context, Intent intent) {
+            String action = intent.getAction();
+            Log.d(Const.TAG, "mUsbReceiver onReceive => " + action);
+            if (UsbManager.ACTION_USB_DEVICE_DETACHED.equals(action)) {
+                Log.d(Const.TAG, "UsbReceiver: device removed");
+                UsbDevice device = intent.getParcelableExtra(UsbManager.EXTRA_DEVICE);
+                if ((device != null) && (mDevice != null)) {
+                    String deviceName = device.getDeviceName();
+                    if ((deviceName != null) && !deviceName.isEmpty() && deviceName.equals(mDevice.getDeviceName())) {
+                        try {
+                            Log.d(Const.TAG, "setAdbInterface(null, null)");
+                            setAdbInterface(null, null);
+                        } catch (Exception e) {
+                            Log.w(Const.TAG, "setAdbInterface(null,null) failed", e);
+                        }
+                    }
+                }
+            }
+            else if (Message.USB_PERMISSION.equals(action)){
+                Log.d(Const.TAG, "UsbReceiver: device added");
+                UsbDevice device = intent.getParcelableExtra(UsbManager.EXTRA_DEVICE);
+                if (device != null) {
+                    handler.sendEmptyMessage(CONNECTING);
+                    if (mManager.hasPermission(device))
+                        asyncRefreshAdbConnection(device);
+                    else
+                        mManager.requestPermission(device,PendingIntent.getBroadcast(getApplicationContext(), 0, new Intent(Message.USB_PERMISSION), PendingIntent.FLAG_IMMUTABLE));
+                }
+            }
+        }
+    };
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
-        tvStatus = findViewById(R.id.tv_status);
-        usb_icon = findViewById(R.id.usb_icon);
-        logs = findViewById(R.id.logs);
-        terminalView = findViewById(R.id.terminalView);
-        checkContainer = findViewById(R.id.checkContainer);
         edCommand = findViewById(R.id.edCommand);
-        btnRun = findViewById(R.id.btnRun);
         scrollView = findViewById(R.id.scrollView);
+        logs = findViewById(R.id.logs);
+        waitingDialog = null;
+
+        final TextView tvStatus = findViewById(R.id.tv_status);
+        final ImageView usb_icon = findViewById(R.id.usb_icon);
+        final RelativeLayout terminalView = findViewById(R.id.terminalView);
+        final LinearLayout checkContainer = findViewById(R.id.checkContainer);
+        final SliderView sliderView = findViewById(R.id.imageSlider);
+        final Button btnRun = findViewById(R.id.btnRun);
+
         mManager = (UsbManager) getSystemService(Context.USB_SERVICE);
 
         handler = new Handler(Looper.getMainLooper()) {
@@ -122,11 +157,11 @@ public class MainActivity extends AppCompatActivity implements TextView.OnEditor
                         break;
 
                     case FLASHING:
-                        Toast.makeText(MainActivity.this, "Flashing", Toast.LENGTH_SHORT).show();
+                        Toast.makeText(MainActivity.this, getString(R.string.toast_flashing), Toast.LENGTH_SHORT).show();
                         break;
 
                     case INSTALLING_PROGRESS:
-                        Toast.makeText(MainActivity.this, "Progress", Toast.LENGTH_SHORT).show();
+                        Toast.makeText(MainActivity.this, getString(R.string.toast_installing_progress), Toast.LENGTH_SHORT).show();
                         break;
 
                 }
@@ -149,6 +184,13 @@ public class MainActivity extends AppCompatActivity implements TextView.OnEditor
             }
         }
 
+        mDevice = null;
+        adbConnection = null;
+        stream = null;
+
+        isShell = false;
+        doubleBackToExitPressedOnce = false;
+
         IntentFilter filter = new IntentFilter();
         filter.addAction(UsbManager.ACTION_USB_DEVICE_DETACHED);
         filter.addAction(Message.USB_PERMISSION);
@@ -157,7 +199,7 @@ public class MainActivity extends AppCompatActivity implements TextView.OnEditor
 
         //Check USB
         UsbDevice device = getIntent().getParcelableExtra(UsbManager.EXTRA_DEVICE);
-        if (device!=null) {
+        if (device != null) {
             Log.d(Const.TAG, "From Intent!");
             asyncRefreshAdbConnection(device);
         }
@@ -184,8 +226,7 @@ public class MainActivity extends AppCompatActivity implements TextView.OnEditor
         }
 
         //Slider
-        sliderView = findViewById(R.id.imageSlider);
-        adapter = new SliderAdapterExample(this);
+        final SliderAdapterExample adapter = new SliderAdapterExample(this);
         sliderView.setSliderAdapter(adapter);
         sliderView.setIndicatorAnimation(IndicatorAnimationType.WORM); //set indicator animation by using SliderLayout.IndicatorAnimations. :WORM or THIN_WORM or COLOR or DROP or FILL or NONE or SCALE or SCALE_DOWN or SLIDE and SWAP!!
         sliderView.setSliderTransformAnimation(SliderAnimations.SIMPLETRANSFORMATION);
@@ -196,41 +237,37 @@ public class MainActivity extends AppCompatActivity implements TextView.OnEditor
         sliderView.setAutoCycle(true);
         sliderView.startAutoCycle();
 
-        SliderItem sliderItem = new SliderItem();
-        sliderItem.setImageUrl(R.drawable.p2p_howto);
-        sliderItem.setDescription("Connect phone to phone");
-        adapter.addItem(sliderItem);
-
-        SliderItem sliderItem1 = new SliderItem();
-        sliderItem1.setImageUrl(R.drawable.deb);
-        sliderItem1.setDescription("Enable developer options and USB debugging");
+        final SliderItem sliderItem1 = new SliderItem();
+        sliderItem1.setImageUrl(R.drawable.p2p_howto);
+        sliderItem1.setDescription(getString(R.string.slider_item1_description));
         adapter.addItem(sliderItem1);
 
-        edCommand.setImeActionLabel("Run", EditorInfo.IME_ACTION_DONE);
+        final SliderItem sliderItem2 = new SliderItem();
+        sliderItem2.setImageUrl(R.drawable.deb);
+        sliderItem2.setDescription(getString(R.string.slider_item2_description));
+        adapter.addItem(sliderItem2);
+
+        edCommand.setImeActionLabel(getString(R.string.button_label_run_command), EditorInfo.IME_ACTION_DONE);
         edCommand.setOnEditorActionListener(this);
         edCommand.setOnKeyListener(this);
 
-//        //Guide
-//        LinearLayout guideContainer = findViewById(R.id.guideContainer);
-//        String [] split = getString(R.string.guide_for_dev_option).split("=============================");
-//        for (String a:split){
-//            String[] b = a.trim().split("\n");
-//            String mTitle = b[0];
-//            String content = a.replace(mTitle,"").replace(b[1],"").trim();
-//
-//            View view = getLayoutInflater().inflate(R.layout.list_item,null);
-//            TextView title = view.findViewById(R.id.title);
-//            title.setText(mTitle);
-//            ExpandableTextView exp = view.findViewById(R.id.expand_text_view);
-//            exp.setText(content);
-//
-//            guideContainer.addView(view);
-//        }
+        btnRun.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                putCommand();
+            }
+        });
+    }
+
+    private void clearLog() {
+        logs.setText("");
     }
 
     private void closeWaiting(){
-        if (waitingDialog!=null)
+        if (waitingDialog != null) {
             waitingDialog.dismiss();
+            waitingDialog = null;
+        }
     }
 
     private void waitingDialog(){
@@ -238,6 +275,19 @@ public class MainActivity extends AppCompatActivity implements TextView.OnEditor
         waitingDialog = SpinnerDialog.displayDialog(this, "IMPORTANT ⚡",
                         "You may need to accept a prompt on the target device if you are connecting "+
                         "to it for the first time from this device.", false);
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        Log.d(Const.TAG, "From onNewIntent");
+        asyncRefreshAdbConnection((UsbDevice) intent.getParcelableExtra(UsbManager.EXTRA_DEVICE));
+    }
+
+    @Override
+    public void onDestroy() {
+        releaseAll();
+        super.onDestroy();
     }
 
     @Override
@@ -261,13 +311,6 @@ public class MainActivity extends AppCompatActivity implements TextView.OnEditor
         return super.onOptionsItemSelected(item);
     }
 
-    @Override
-    protected void onNewIntent(Intent intent) {
-        super.onNewIntent(intent);
-        Log.d(Const.TAG, "From onNewIntent");
-        asyncRefreshAdbConnection((UsbDevice) intent.getParcelableExtra(UsbManager.EXTRA_DEVICE));
-    }
-
     public void asyncRefreshAdbConnection(final UsbDevice device) {
         if (device != null) {
             new Thread() {
@@ -283,34 +326,6 @@ public class MainActivity extends AppCompatActivity implements TextView.OnEditor
             }.start();
         }
     }
-
-    BroadcastReceiver mUsbReceiver = new BroadcastReceiver() {
-        public void onReceive(Context context, Intent intent) {
-            String action = intent.getAction();
-            Log.d(Const.TAG, "mUsbReceiver onReceive => "+action);
-            if (UsbManager.ACTION_USB_DEVICE_DETACHED.equals(action)) {
-                UsbDevice device = intent.getParcelableExtra(UsbManager.EXTRA_DEVICE);
-                String deviceName = device.getDeviceName();
-                if (mDevice != null && mDevice.getDeviceName().equals(deviceName)) {
-                    try {
-                        Log.d(Const.TAG, "setAdbInterface(null, null)");
-                        setAdbInterface(null, null);
-                    } catch (Exception e) {
-                        Log.w(Const.TAG, "setAdbInterface(null,null) failed", e);
-                    }
-                }
-            }
-            else if (Message.USB_PERMISSION.equals(action)){
-                Log.d(Const.TAG, "From receiver!");
-                UsbDevice usbDevice = intent.getParcelableExtra(UsbManager.EXTRA_DEVICE);
-                handler.sendEmptyMessage(CONNECTING);
-                if (mManager.hasPermission(usbDevice))
-                    asyncRefreshAdbConnection(usbDevice);
-                else
-                    mManager.requestPermission(usbDevice,PendingIntent.getBroadcast(getApplicationContext(), 0, new Intent(Message.USB_PERMISSION), PendingIntent.FLAG_IMMUTABLE));
-            }
-        }
-    };
 
     // searches for an adb interface on the given USB device
     private UsbInterface findAdbInterface(UsbDevice device) {
@@ -358,14 +373,7 @@ public class MainActivity extends AppCompatActivity implements TextView.OnEditor
         return false;
     }
 
-    @Override
-    public void onResume() {
-        super.onResume();
-    }
-
-    @Override
-    public void onDestroy() {
-        super.onDestroy();
+    private void releaseAll() {
         unregisterReceiver(mUsbReceiver);
         closeConnection();
     }
@@ -382,34 +390,23 @@ public class MainActivity extends AppCompatActivity implements TextView.OnEditor
     }
 
     private void initCommand(){
-        // Open the shell stream of ADB
-        logs.setText("");
-        try {
-            stream = adbConnection.open("shell:");
-        } catch (Exception e) {
-            Log.w(Const.TAG, "failed to open ADB connection", e);
-            return;
-        }
-
-        // Start the receiving thread
+        // Print output from open ADB connection until closed
         new Thread(new Runnable() {
             @Override
             public void run() {
-                while (!stream.isClosed()) {
+                while (adbConnection != null) {
                     try {
-                        // Print each thing we read from the shell stream
-                        final String[] output = {new String(stream.read(), "US-ASCII")};
+                        if (stream == null) {
+                            Thread.sleep(1000);
+                            continue;
+                        }
+
+                        final String output = new String(stream.read(), "US-ASCII");
+
                         runOnUiThread(new Runnable() {
                             @Override
                             public void run() {
-                                if (user == null) {
-                                    user = output[0].substring(0,output[0].lastIndexOf("/")+1);
-                                }
-                                else if (output[0].contains(user)){
-                                    Log.d(Const.TAG, "End => " + user);
-                                }
-
-                                logs.append(output[0]);
+                                logs.append(output);
 
                                 scrollView.post(new Runnable() {
                                     @Override
@@ -422,42 +419,106 @@ public class MainActivity extends AppCompatActivity implements TextView.OnEditor
                         });
                     } catch (Exception e) {
                         Log.w(Const.TAG, "failed to read output from ADB connection", e);
-                        return;
+
+                        if ((stream != null) && stream.isClosed())
+                            stream = null;
                     }
                 }
             }
         }).start();
-
-        btnRun.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                putCommand();
-            }
-        });
     }
 
     private void putCommand() {
-        if (!edCommand.getText().toString().isEmpty()){
-            // We become the sending thread
-            try {
-                String cmd = edCommand.getText().toString();
-                if (cmd.equalsIgnoreCase("clear")) {
-                    String log = logs.getText().toString();
-                    String[] logSplit = log.split("\n");
-                    logs.setText(logSplit[logSplit.length-1]);
+        if (adbConnection == null)
+            return;
+
+        String cmd = edCommand.getText().toString().trim();
+
+        if (cmd.isEmpty())
+            return;
+
+        edCommand.setText("");
+
+        if (cmd.equalsIgnoreCase("clear")) {
+            clearLog();
+            return;
+        }
+
+        if (isShell) {
+            if (cmd.equalsIgnoreCase("exit")) {
+                closeStream();
+                isShell = false;
+            }
+            else {
+                try {
+                    writeToStream(cmd);
                 }
-                else if (cmd.equalsIgnoreCase("exit")) {
-                    finish();
+                catch(Exception e) {
+                    Log.w(Const.TAG, "failed to send shell command to ADB connection:" + "\n" + cmd, e);
                 }
-                else {
-                    stream.write((cmd+"\n").getBytes("UTF-8"));
-                }
-                edCommand.setText("");
-            } catch (Exception e) {
-                Log.w(Const.TAG, "failed to send command to ADB connection", e);
             }
         }
-        //else Toast.makeText(MainActivity.this, "No command", Toast.LENGTH_SHORT).show();
+        else {
+            if (cmd.equalsIgnoreCase("exit")) {
+                releaseAll();
+                finish();
+            }
+            else if (cmd.startsWith("adb ")) {
+                cmd = cmd.substring(4).trim();
+
+                if (cmd.isEmpty()) {
+                    Toast.makeText(MainActivity.this, getString(R.string.toast_adb_invalid_command), Toast.LENGTH_SHORT).show();
+                    return;
+                }
+
+                int index = cmd.indexOf(" ");
+
+                cmd = (index == -1)
+                    ? (cmd + ":")
+                    : (cmd.substring(0, index) + ":" + cmd.substring(index + 1));
+
+                isShell = cmd.equals("shell:");
+
+                try {
+                    openStream(cmd);
+                }
+                catch(Exception e) {
+                    Log.w(Const.TAG, "failed to send command to ADB connection:" + "\n" + cmd, e);
+                }
+            }
+            else {
+                Toast.makeText(MainActivity.this, getString(R.string.toast_adb_invalid_command), Toast.LENGTH_SHORT).show();
+            }
+        }
+    }
+
+    private void openStream(String destination) throws Exception {
+        if (adbConnection == null)
+            return;
+
+        closeStream();
+        stream = adbConnection.open(destination);
+
+        if (!isShell)
+            closeStream();
+    }
+
+    private void writeToStream(String cmd) throws Exception {
+        if ((adbConnection == null) || (stream == null) || stream.isClosed())
+            return;
+
+        stream.write((cmd + "\n").getBytes("UTF-8"));
+    }
+
+    private void closeStream() {
+        if ((adbConnection == null) || (stream == null) || stream.isClosed())
+            return;
+
+        try {
+            stream.close();
+        }
+        catch(Exception e) {
+        }
     }
 
     public void open(View view) {
@@ -485,7 +546,7 @@ public class MainActivity extends AppCompatActivity implements TextView.OnEditor
         }
 
         this.doubleBackToExitPressedOnce = true;
-        Toast.makeText(this, "Please click BACK again to exit", Toast.LENGTH_SHORT).show();
+        Toast.makeText(this, getString(R.string.toast_click_back_again_to_exit), Toast.LENGTH_SHORT).show();
 
         new Handler().postDelayed(new Runnable() {
             @Override

@@ -1,7 +1,7 @@
 project.ext {
     applicationId       = 'com.htetznaing.adbotg'
-    releaseVersionCode  = Integer.parseInt("1010100015", 10)  //Integer.MAX_VALUE == 2147483647
-    releaseVersion      = '1.0.1-fork-01.00.0-15API'
+    releaseVersionCode  = Integer.parseInt("1010200015", 10)  //Integer.MAX_VALUE == 2147483647
+    releaseVersion      = '1.0.1-fork-02.00.0-15API'
     javaVersion         = JavaVersion.VERSION_1_8
     minSdkVersion       = 15
     targetSdkVersion    = 35

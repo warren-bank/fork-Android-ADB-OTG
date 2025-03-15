@@ -65,7 +65,7 @@ public class AdbStream implements Closeable {
 	void sendReady() throws IOException
 	{
 		/* Generate and send a READY packet */
-        adbConn.channel.writex(AdbProtocol.generateReady(localId, remoteId));
+		adbConn.channel.writex(AdbProtocol.generateReady(localId, remoteId));
 	}
 
 	/**
@@ -116,9 +116,12 @@ public class AdbStream implements Closeable {
 				readQueue.wait();
 			}
 
-
 			if (isClosed) {
-				throw new IOException("Stream closed");
+				data = readQueue.poll();
+
+				if ((data == null) && readQueue.isEmpty()) {
+					throw new IOException("Stream is closed, and all data is read");
+				}
 			}
 		}
 		return data;
@@ -143,18 +146,18 @@ public class AdbStream implements Closeable {
 	 */
 	public void write(byte[] payload) throws IOException, InterruptedException
 	{
-        synchronized (this) {
+		synchronized (this) {
 			/* Make sure we're ready for a write */
-            while (!isClosed && !writeReady.compareAndSet(true, false))
-                wait();
+			while (!isClosed && !writeReady.compareAndSet(true, false))
+				wait();
 
-            if (isClosed) {
-                throw new IOException("Stream closed");
-            }
-        }
+			if (isClosed) {
+				throw new IOException("Stream closed");
+			}
+		}
 
 		/* Generate a WRITE packet and send it */
-        adbConn.channel.writex(AdbProtocol.generateWrite(localId, remoteId, payload));
+		adbConn.channel.writex(AdbProtocol.generateWrite(localId, remoteId, payload));
 	}
 
 	/**
@@ -172,7 +175,7 @@ public class AdbStream implements Closeable {
 			notifyClose();
 		}
 
-        adbConn.channel.writex(AdbProtocol.generateClose(localId, remoteId));
+		adbConn.channel.writex(AdbProtocol.generateClose(localId, remoteId));
 	}
 
 	/**
